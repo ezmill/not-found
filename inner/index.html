@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - lights - hemisphere light</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #fff;
+				color: #111;
+				margin: 0px;
+				overflow: hidden;
+				font-family: Monospace;
+				font-size: 13px;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+				text-align: center;
+			}
+
+			a {
+				color: #0080ff;
+				text-decoration: none;
+			}
+
+			a:hover {
+				color: #f00;
+			}
+
+			#footer { width: 100%; margin: 2em auto; text-align: center; position: absolute; bottom: 0 }
+			strong { color: red }
+
+			#stats { position: absolute; top:0; left: 0 }
+			#stats #fps { background: transparent !important }
+			#stats #fps #fpsText { color: #555 !important }
+			#stats #fps #fpsGraph { display: none }
+		</style>
+	</head>
+	<body>
+
+		<div id="container"></div>
+
+		<script src="../js/three.min.js"></script>
+		<script src="../js/OBJLoader.js"></script>
+
+		<script src="../js/OrbitControls.js"></script>
+
+		<script src="../js/Detector.js"></script>
+
+		<script type="x-shader/x-vertex" id="vertexShader">
+
+			varying vec3 vWorldPosition;
+
+			void main() {
+
+				vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+				vWorldPosition = worldPosition.xyz;
+
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentShader">
+
+			uniform vec3 topColor;
+			uniform vec3 bottomColor;
+			uniform float offset;
+			uniform float exponent;
+
+			varying vec3 vWorldPosition;
+
+			void main() {
+
+				float h = normalize( vWorldPosition + offset ).y;
+				gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
+
+			}
+
+		</script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var cameraRTT, sceneRTT, renderer, dirLight, hemiLight;
+			var morphs = [];
+			var stats;
+			var clock = new THREE.Clock();
+			var RTT;
+			var mouseX;
+			var windowHalfX = window.innerWidth/2;
+			init();
+			animate();
+			function init() {
+
+				var container = document.getElementById( 'container' );
+
+				cameraRTT = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 5000 );
+				cameraRTT.position.set( 0, 0, 250 );
+				camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 5000 );
+				camera.position.set( 0, 0, 250 );
+
+				scene = new THREE.Scene();
+				sceneRTT = new THREE.Scene();
+
+				sceneRTT.fog = new THREE.Fog( 0xffffff, 1, 5000 );
+				sceneRTT.fog.color.setHSL( 0.6, 0, 1 );
+
+				
+				// controls = new THREE.OrbitControls( cameraRTT );
+
+/*				controls.rotateSpeed = 1.0;
+				controls.zoomSpeed = 1.2;
+				controls.panSpeed = 0.8;
+
+				controls.noZoom = false;
+				controls.noPan = false;
+
+				controls.staticMoving = true;
+				controls.dynamicDampingFactor = 0.15;*/
+				
+
+				// LIGHTS
+
+				hemiLight = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+				hemiLight.color.setHSL( 0.6, 1, 0.6 );
+				hemiLight.groundColor.setHSL( 0.095, 1, 0.75 );
+				hemiLight.position.set( 0, 500, 0 );
+				sceneRTT.add( hemiLight );
+
+				//
+
+				dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+				dirLight.color.setHSL( 0.1, 1, 0.95 );
+				dirLight.position.set( -1, 1.75, 1 );
+				dirLight.position.multiplyScalar( 50 );
+				sceneRTT.add( dirLight );
+
+				dirLight.castShadow = true;
+
+				dirLight.shadowMapWidth = 2048;
+				dirLight.shadowMapHeight = 2048;
+
+				var d = 50;
+
+				dirLight.shadowcameraRTTLeft = -d;
+				dirLight.shadowcameraRTTRight = d;
+				dirLight.shadowcameraRTTTop = d;
+				dirLight.shadowcameraRTTBottom = -d;
+
+				dirLight.shadowcameraRTTFar = 3500;
+				dirLight.shadowBias = -0.0001;
+				dirLight.shadowDarkness = 0.35;
+				//dirLight.shadowcameraRTTVisible = true;
+
+				// GROUND
+
+				var groundGeo = new THREE.PlaneBufferGeometry( 10000, 10000 );
+				var groundMat = new THREE.MeshPhongMaterial( { color: 0xc2d0ee, specular: 0xffffff } );
+				// groundMat.color.setHSL( 0.095, 1, 0.75 );
+
+				var ground = new THREE.Mesh( groundGeo, groundMat );
+				ground.rotation.x = -Math.PI/2;
+				ground.position.y = -33;
+				// sceneRTT.add( ground );
+
+				ground.receiveShadow = true;
+				var hillGeo = new THREE.SphereGeometry(200,100,100);
+				var diffuseTex = THREE.ImageUtils.loadTexture("../tex/grass-diffuse.jpg");
+				var bumpTex = THREE.ImageUtils.loadTexture("../tex/grass-bump.jpg");
+				var normalTex = THREE.ImageUtils.loadTexture("../tex/grass-normal.jpg");
+				diffuseTex.wrapS = bumpTex.wrapS = normalTex.wrapS = THREE.RepeatWrapping;
+				diffuseTex.wrapT = bumpTex.wrapT = normalTex.wrapT = THREE.RepeatWrapping;
+				var repeat = 10;
+				diffuseTex.repeat.set( repeat, repeat );
+				bumpTex.repeat.set( repeat, repeat );
+				normalTex.repeat.set( repeat, repeat );
+				var hillMat = new THREE.MeshLambertMaterial({
+					color: 0xffffff, 
+					map: diffuseTex,
+					bumpMap: bumpTex,
+					bumpScale: 0.2,
+					normalMap: normalTex,
+					normalScale: new THREE.Vector2(0.2,0.2)
+				});
+				var hill = new THREE.Mesh(hillGeo, hillMat);
+				hill.position.y = -210;
+				hill.scale.x = 2;
+				sceneRTT.add(hill);
+				// SKYDOME
+
+				var vertexShader = document.getElementById( 'vertexShader' ).textContent;
+				var fragmentShader = document.getElementById( 'fragmentShader' ).textContent;
+				var uniforms = {
+					topColor: 	 { type: "c", value: new THREE.Color( 0xdbe4f9 ) },
+					bottomColor: { type: "c", value: new THREE.Color( 0xffffff ) },
+					offset:		 { type: "f", value: 400 },
+					exponent:	 { type: "f", value: 0.6 }
+				}
+				uniforms.topColor.value.copy( hemiLight.color );
+
+				sceneRTT.fog.color.copy( uniforms.bottomColor.value );
+
+				var skyGeo = new THREE.SphereGeometry( 4000, 32, 15 );
+				var skyMat = new THREE.ShaderMaterial( { vertexShader: vertexShader, fragmentShader: fragmentShader, uniforms: uniforms, side: THREE.BackSide } );
+
+				var sky = new THREE.Mesh( skyGeo, skyMat );
+				sceneRTT.add( sky );
+
+				var cloudTexture = THREE.ImageUtils.loadTexture( '../tex/cloud2.png' );
+				cloudTexture.magFilter = THREE.LinearMipMapLinearFilter;
+				cloudTexture.minFilter = THREE.LinearMipMapLinearFilter;
+
+				var cloudPlane = new THREE.PlaneBufferGeometry( 348/3, 134/6 );
+				var cloudMaterial = new THREE.MeshBasicMaterial({
+					map: cloudTexture,
+					transparent: true
+				})
+				var cloud = new THREE.Mesh(cloudPlane,cloudMaterial);
+				cloud.position.set(-40,35,0);
+				sceneRTT.add(cloud);
+				initPage();
+				// RENDERER
+
+				RTT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, antialias: true, format: THREE.RGBFormat });
+				// RTT.setPixelRatio(window.devicePixelRatio);
+				RTT.gammaInput = true;
+				RTT.gammaOutput = true;
+				RTT.shadowMapEnabled = true;
+				RTT.shadowMapCullFace = THREE.CullFaceBack;
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setClearColor( sceneRTT.fog.color );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				renderer.gammaInput = true;
+				renderer.gammaOutput = true;
+
+				renderer.shadowMapEnabled = true;
+				renderer.shadowMapCullFace = THREE.CullFaceBack;
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+				document.addEventListener( 'keydown', onKeyDown, false );
+				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+
+			}
+
+			function initPage(){
+				manager = new THREE.LoadingManager();
+			    manager.onProgress = function ( item, loaded, total ) {
+			        console.log( item, loaded, total );
+			    };
+			    loadModel("../obj/page.obj", -40, 40,0, 0.5, 0, 0, 0);
+			}
+			function morphColorsToFaceColors( geometry ) {
+
+				if ( geometry.morphColors && geometry.morphColors.length ) {
+
+					var colorMap = geometry.morphColors[ 0 ];
+
+					for ( var i = 0; i < colorMap.colors.length; i ++ ) {
+
+						geometry.faces[ i ].color = colorMap.colors[ i ];
+
+					}
+
+				}
+
+			}
+
+			function onWindowResize() {
+
+				cameraRTT.aspect = window.innerWidth / window.innerHeight;
+				cameraRTT.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+			function onDocumentMouseMove( event ) {
+
+				mouseX = ( event.clientX - windowHalfX ) / 2;
+				// mouseY = ( event.clientY - windowHalfY ) / 2;
+
+			}
+
+			function onKeyDown ( event ) {
+
+				switch ( event.keyCode ) {
+
+					case 72: /*h*/
+
+					hemiLight.visible = !hemiLight.visible;
+					break;
+
+					case 68: /*d*/
+
+					dirLight.visible = !dirLight.visible;
+					break;
+
+				}
+
+			}
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+
+			}
+
+			function render() {
+
+				var delta = clock.getDelta();
+
+				// camera.position.x += ( mouseX - camera.position.x ) * .05;
+
+				//controls.update();
+				renderer.render(sceneRTT, cameraRTT, RTT, true);
+				renderer.render( scene, camera);
+
+			}
+function loadModel(model, x, y, z, scale, rotX, rotY, rotZ, customMaterial){
+    var loader = new THREE.OBJLoader( manager );
+    loader.load( model, function ( object ) {
+
+        object.traverse( function ( child ) {
+
+            if ( child instanceof THREE.Mesh ) {
+
+                child.material = new THREE.MeshBasicMaterial({
+			        color: 0xffffff,
+			        side: 2,
+			        map: RTT
+			    });
+                // child.material.side = 2;
+                // child.material.envMap = texCube;
+
+            }
+
+        } );
+
+        object.scale.set(scale,scale,scale);
+        object.position.set(0,-200,-200);
+        object.material = new THREE.MeshBasicMaterial({
+			        color: 0xffffff,
+			        side: 2
+			        // map: THREE.ImageUtils.loadTexture( '../tex/image-not-found.gif' )
+			    })
+        scene.add( object );
+        // object.castShadow = true;
+        // object.receiveShadow = true;
+    }, onProgress, onError );
+}
+
+function onProgress( xhr ) {
+    if ( xhr.lengthComputable ) {
+        var percentComplete = xhr.loaded / xhr.total * 100;
+        console.log( Math.round(percentComplete, 2) + '% downloaded' );
+    }
+};
+
+function onError( xhr ) {
+};
+		</script>
+	</body>
+</html>
